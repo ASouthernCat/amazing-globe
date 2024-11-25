@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { EffectComposer, RenderPass } from 'postprocessing';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
 import { initEffect } from './effect';
+import Earth from './globe/Earth';
 
 function initScene() {
     console.log('initScene');
@@ -19,16 +20,14 @@ function initScene() {
     initSizes(canvas);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#eee')
-    const envMapUrl = '/royal_esplanade_1k.hdr' // 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/equirectangular/royal_esplanade_1k.hdr'
-    new RGBELoader().load(envMapUrl, (texture) => {
+    scene.background = new THREE.Color('#000')
+    const envMapUrl = '/texture/royal_esplanade_1k.hdr' // 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/equirectangular/royal_esplanade_1k.hdr'
+    const envMap = new RGBELoader().load(envMapUrl, (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         scene.environment = texture;
         scene.environmentIntensity = 1;
         scene.background = texture;
         scene.backgroundBlurriness = 1;
-        mesh.material.envMap = scene.environment;
-        mesh.material.needsUpdate = true;
     })
 
     const camera = new THREE.PerspectiveCamera(65, sizes.width / sizes.height, 0.1, 500);
@@ -64,16 +63,9 @@ function initScene() {
     // effect
     initEffect(composer, camera)
 
-    // object
-    const mesh = new THREE.Mesh(
-        new THREE.TorusKnotGeometry(1,0.35, 128, 64),
-        new THREE.MeshLambertMaterial({
-            color: 'yellow',
-            combine: THREE.AddOperation,
-            reflectivity: 0.15
-        })
-    )
-    scene.add(mesh)
+    // earth
+    const earth = new Earth({atmosphereColor: new THREE.Color(0xffffff)})
+    scene.add(earth)
 
     initResizeEventListener([camera], [renderer, composer]);
 
@@ -86,9 +78,11 @@ function initScene() {
         stats.update();
         
         controls.update();
+
+        earth.update(delta);
         
-        // renderer.render(scene, camera);
-        composer.render();
+        renderer.render(scene, camera);
+        // composer.render();
 
         tickId = requestAnimationFrame(render);
     }
