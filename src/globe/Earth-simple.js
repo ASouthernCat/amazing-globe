@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import earthFragmentShader from './shader/earth.fs';
-import earthVertexShader from './shader/earth.vs';
-import atmosphereFragmentShader from './shader/atmosphere.fs';
-import atmosphereVertexShader from './shader/atmosphere.vs';
+import earthFragmentShader from './shader/simple-earth/earth.fs';
+import earthVertexShader from './shader/simple-earth/earth.vs';
+import atmosphereFragmentShader from './shader/simple-earth/atmosphere.fs';
+import atmosphereVertexShader from './shader/simple-earth/atmosphere.vs';
 
 export default class Earth extends THREE.Object3D {
 
@@ -16,7 +16,7 @@ export default class Earth extends THREE.Object3D {
      * }} config 
      */
     constructor(config = {}) {
-        const { radius = 1.5, segments = 64, glowColor = new THREE.Color(0x00aaff), atmosphereColor = new THREE.Color(0x00aaff)} = config;
+        const { radius = 2, segments = 64, glowColor = new THREE.Color(0x00aaff), atmosphereColor = new THREE.Color(0x00aaff)} = config;
         super();
         this.name = 'Earth'
         this.radius = radius;
@@ -41,7 +41,6 @@ export default class Earth extends THREE.Object3D {
     }
 
     createAtmosphere() {
-        const atmosphereGeometry = new THREE.SphereGeometry(this.radius + 0.05, this.segments, this.segments);
         const atmosphereMaterial = new THREE.ShaderMaterial({
             blending: THREE.AdditiveBlending,
             side: THREE.BackSide,
@@ -52,7 +51,8 @@ export default class Earth extends THREE.Object3D {
             vertexShader: atmosphereVertexShader,
             fragmentShader: atmosphereFragmentShader,
         });
-        this.atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        this.atmosphere = new THREE.Mesh(this.earthGeometry, atmosphereMaterial);
+        this.atmosphere.scale.set(1.05, 1.05, 1.05);
         this.add(this.atmosphere);
     }
 
