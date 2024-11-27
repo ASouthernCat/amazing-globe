@@ -1,6 +1,8 @@
-import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
+// import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
+import { Pane } from 'tweakpane';
 
-const gui = new GUI();
-const debugObject = {};
+const pane = new Pane();
+// const gui = new GUI();
+// const debugObject = {};
 
-export { gui, debugObject };
+export { pane };

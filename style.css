@@ -8,6 +8,12 @@ body {
   padding: 0;
 }
 
+/* tweakpane */
+body .tp-dfwv {
+  width: max-content;
+  min-width: 256px;
+}
+
 #webgl-container {
   position: fixed;
   width: 100%;
