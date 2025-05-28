@@ -83,4 +83,25 @@ export default class Earth extends THREE.Object3D {
     update(delta) {
         this.earthMesh.rotation.y += 0.1 * delta;
     }
+
+    dispose() {
+        // 清理几何体和材质
+        this.traverse(child => {
+            if (child.geometry) {
+                child.geometry.dispose();
+            }
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(material => material.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+        this.earthMesh.geometry.dispose();
+        this.atmosphere.geometry.dispose();
+        this.earthMaterial.dispose();
+        this.atmosphereMaterial.dispose();
+        this.earthGeometry.dispose();
+    }
 }

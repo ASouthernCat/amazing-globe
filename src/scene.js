@@ -32,6 +32,7 @@ function initScene() {
         scene.environmentIntensity = 1;
     })
     const sceneFolder = pane.addFolder({title: 'scene'})
+    sceneFolder.expanded = false
     sceneFolder.addBinding(scene, 'backgroundBlurriness', { step: 0.1, min: 0, max: 2 })
     sceneFolder.addBinding(sceneParameters, 'bgColor').on('change', ev=>{
         scene.background = new THREE.Color(ev.value);
@@ -43,13 +44,14 @@ function initScene() {
         else scene.background = new THREE.Color(sceneParameters.bgColor);
     })
 
-    const camera = new THREE.PerspectiveCamera(65, sizes.width / sizes.height, 0.1, 500);
+    const camera = new THREE.PerspectiveCamera(65, sizes.width / sizes.height, 0.1, 1000);
     camera.position.set(0, 0, 6);
 
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
-    const controlsFolder = pane.addFolder({title: 'controls'})
-    controlsFolder.addBinding(controls, 'autoRotate')
+    controls.enablePan = false;
+    controls.maxDistance = 980;
+    sceneFolder.addBinding(controls, 'autoRotate', { label: 'controls.autoRotate' })
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 1);
     scene.add(ambientLight);
@@ -95,18 +97,24 @@ function initScene() {
         "earth-threejs-journey": createEarthThreejsJourney,
         "earth-github": createEarthGithub
     }
-    earthTypes['earth-github']() // default
+    const defaultEarthType = 'earth-github';
+    
+    // 根据 earthTypes 动态生成 options
+    const generateEarthOptions = () => {
+        return Object.keys(earthTypes).map(key => ({
+            text: key,
+            value: key
+        }));
+    }
+
+    earthTypes[defaultEarthType]() // default
 
     const earthFolder = pane.addFolder({title: 'earth'})
     earthFolder.addBlade({
         view: 'list',
         label: 'type',
-        options: [
-          {text: 'earth-simple', value: 'earth-simple'},
-          {text: 'earth-threejs-journey', value: 'earth-threejs-journey'},
-          {text: 'earth-github', value: 'earth-github'},
-        ],
-        value: 'earth-github',
+        options: generateEarthOptions(),
+        value: defaultEarthType, // default
     }).on('change', (ev)=>{
         for (let i=0; i< earthFolder.children.length; i++){
             if(i!=0) {
@@ -114,7 +122,10 @@ function initScene() {
                 earthFolder.children[i]?.element?.remove()
             }
         }
-        earth && scene.remove(earth)
+        if(earth) {
+            scene.remove(earth)
+            earth.dispose()
+        }
         resetSceneSettings()
         earthTypes[ev.value]()
     })

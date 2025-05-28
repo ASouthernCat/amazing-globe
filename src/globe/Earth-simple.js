@@ -41,7 +41,7 @@ export default class Earth extends THREE.Object3D {
     }
 
     createAtmosphere() {
-        const atmosphereMaterial = new THREE.ShaderMaterial({
+        this.atmosphereMaterial = new THREE.ShaderMaterial({
             blending: THREE.AdditiveBlending,
             side: THREE.BackSide,
             transparent: true,
@@ -51,12 +51,33 @@ export default class Earth extends THREE.Object3D {
             vertexShader: atmosphereVertexShader,
             fragmentShader: atmosphereFragmentShader,
         });
-        this.atmosphere = new THREE.Mesh(this.earthGeometry, atmosphereMaterial);
+        this.atmosphere = new THREE.Mesh(this.earthGeometry, this.atmosphereMaterial);
         this.atmosphere.scale.set(1.05, 1.05, 1.05);
         this.add(this.atmosphere);
     }
 
     update(delta){
         this.earthMaterial.uniforms.time.value += delta;
+    }
+
+    dispose() {
+        // 清理几何体和材质
+        this.traverse(child => {
+            if (child.geometry) {
+                child.geometry.dispose();
+            }
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(material => material.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+        this.earthMesh.geometry.dispose();
+        this.atmosphere.geometry.dispose();
+        this.earthGeometry.dispose();
+        this.earthMaterial.dispose();
+        this.atmosphereMaterial.dispose();
     }
 }
