@@ -56,6 +56,7 @@ function initScene() {
     const ambientLight = new THREE.AmbientLight(0xffffff, 1);
     scene.add(ambientLight);
     const light = new THREE.DirectionalLight(0xffffff, 3);
+    light.castShadow = false;
     light.position.set(-3, 2, -1);
     scene.add(light);
     sceneFolder.addBinding(light, 'intensity', { step: 0.1, min:0.1, max: 10, label: 'lightIntensity' });
@@ -71,6 +72,7 @@ function initScene() {
     })
     renderer.setSize(sizes.width, sizes.height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.shadowMap.enabled = false
 
     // postprocessing
     const composer = new EffectComposer(renderer, {
@@ -220,12 +222,13 @@ function initScene() {
                 pointSize: 0.5,
                 globeColor: '#26398c',
                 showAtmosphere: true,
-                atmosphereColor: '#d0f2ff',
+                atmosphereColor: '#a6e6ff',
                 atmosphereAltitude: 0.05,
                 emissive: '#000000',
                 emissiveIntensity: 0.1,
                 shininess: 100,
-                polygonColor: '#ffffff',
+                polygonColor: '#7df9ff',
+                polygonOpacity: 0.1,
                 arcTime: 2000,
                 maxRings: 1.5,
                 autoRotate: true,
@@ -240,6 +243,12 @@ function initScene() {
                 waveDelay: 400,
                 baseCircleScale: 1.0,
                 ringThickness: 0.05,
+                // 陆地点云配置
+                showLandPoints: true,
+                landPointSize: 1.0,
+                landPointColor: '#9afaff',
+                landPointDensity: 1.0,
+                landPointOpacity: 0.8,
                 arcsData: arcsData,
                 pointsData: pointsData
             };
@@ -257,14 +266,8 @@ function initScene() {
             basicFolder.addBinding(globeConfig, 'atmosphereColor').on('change', ev => {
                 earth.atmosphere.material.uniforms.glowColor.value.set(ev.value)
             })
-            basicFolder.addBinding(globeConfig, 'autoRotate').on('change', ev => {
-                // autoRotate 配置已经通过共享的 config 对象自动更新
-                console.log('自动旋转设置已更新:', ev.value)
-            })
-            basicFolder.addBinding(globeConfig, 'autoRotateSpeed', {min: 0.001, max: 0.1, step: 0.001}).on('change', ev => {
-                // autoRotateSpeed 配置已经通过共享的 config 对象自动更新
-                console.log('自动旋转速度已更新:', ev.value)
-            })
+            basicFolder.addBinding(globeConfig, 'autoRotate')
+            basicFolder.addBinding(globeConfig, 'autoRotateSpeed', {min: 0.001, max: 0.1, step: 0.001})
             basicFolder.addBinding(globeConfig, 'showAtmosphere').on('change', ev => {
                 earth.atmosphere.visible = ev.value
             })
@@ -290,6 +293,50 @@ function initScene() {
                 }
             })
             
+            // 国家边界控制
+            const borderFolder = earthFolder.addFolder({title: '国家边界'})
+            borderFolder.expanded = false
+            
+            // 边界颜色控制
+            borderFolder.addBinding(globeConfig, 'polygonColor', {
+                label: '边界颜色'
+            }).on('change', ev => {
+                if (earth.countriesGroup) {
+                    earth.countriesGroup.children.forEach(child => {
+                        if (child.material && child.material.color) {
+                            child.material.color.set(ev.value);
+                        }
+                    });
+                }
+            });
+            
+            // 边界透明度控制
+            borderFolder.addBinding(globeConfig, 'polygonOpacity', {
+                min: 0.01,
+                max: 1.0,
+                step: 0.01,
+                label: '边界透明度'
+            }).on('change', ev => {
+                if (earth.countriesGroup) {
+                    earth.countriesGroup.children.forEach(child => {
+                        if (child.material && child.material.opacity !== undefined) {
+                            child.material.opacity = ev.value;
+                            child.material.needsUpdate = true;
+                        }
+                    });
+                }
+            });
+            
+            // 显示/隐藏国家边界
+            const borderVisibility = { showBorders: true };
+            borderFolder.addBinding(borderVisibility, 'showBorders', {
+                label: '显示边界'
+            }).on('change', ev => {
+                if (earth.countriesGroup) {
+                    earth.countriesGroup.visible = ev.value;
+                }
+            });
+            
             // 光波动画控制
             const waveFolder = earthFolder.addFolder({title: '光波动画'})
             waveFolder.expanded = false
@@ -300,10 +347,7 @@ function initScene() {
                     earth.createRings()
                 }
             })
-            waveFolder.addBinding(globeConfig, 'waveDuration', {min: 1.0, max: 5.0, step: 0.1}).on('change', ev => {
-                // waveDuration 配置已经通过共享的 config 对象自动更新
-                console.log('波浪持续时间已更新:', ev.value)
-            })
+            waveFolder.addBinding(globeConfig, 'waveDuration', {min: 1.0, max: 5.0, step: 0.1})
             waveFolder.addBinding(globeConfig, 'waveDelay', {min: 200, max: 1500, step: 50}).on('change', ev => {
                 // 重新创建圆环以应用新设置
                 if (earth.ringsGroup) {
@@ -329,10 +373,7 @@ function initScene() {
             // 飞线动画控制
             const flyingFolder = earthFolder.addFolder({title: '飞线动画'})
             flyingFolder.expanded = false
-            flyingFolder.addBinding(globeConfig, 'arcTime', {min: 500, max: 4000, step: 10}).on('change', ev => {
-                // arcTime 配置已经通过共享的 config 对象自动更新
-                console.log('弧线动画时间已更新:', ev.value)
-            })
+            flyingFolder.addBinding(globeConfig, 'arcTime', {min: 500, max: 4000, step: 10})
             flyingFolder.addBinding(globeConfig, 'flyingLineLength', {min: 5, max: 50, step: 1}).on('change', ev => {
                 // 重新创建弧线以应用新设置
                 if (earth.arcsGroup) {
@@ -354,6 +395,110 @@ function initScene() {
                     earth.createArcs()
                 }
             })
+
+            // 陆地点云控制
+            const landPointsFolder = earthFolder.addFolder({title: '陆地点云'})
+            landPointsFolder.expanded = false
+            
+            // 显示/隐藏陆地点云
+            landPointsFolder.addBinding(globeConfig, 'showLandPoints').on('change', ev => {
+                earth.updateLandPointsVisibility(ev.value);
+            });
+            
+            // 点云大小控制
+            landPointsFolder.addBinding(globeConfig, 'landPointSize', {
+                min: 0.1, 
+                max: 3.0, 
+                step: 0.1,
+                label: '点大小'
+            }).on('change', async (ev) => {
+                if (earth.landPoints && earth.landPoints.material) {
+                    earth.landPoints.material.size = ev.value;
+                    earth.landPoints.material.needsUpdate = true;
+                }
+            });
+            
+            // 点云颜色控制
+            landPointsFolder.addBinding(globeConfig, 'landPointColor', {
+                label: '点颜色'
+            }).on('change', async (ev) => {
+                if (earth.landPoints && earth.landPoints.material) {
+                    earth.landPoints.material.color.set(ev.value);
+                    earth.landPoints.material.needsUpdate = true;
+                }
+            });
+            
+            // 点云密度控制（需要重新生成）
+            landPointsFolder.addBinding(globeConfig, 'landPointDensity', {
+                min: 0.5, 
+                max: 3.0, 
+                step: 0.1,
+                label: '点密度'
+            }).on('change', async (ev) => {
+                // 密度改变需要重新创建点云
+                if (earth.config.showLandPoints) {
+                    await earth.recreateLandPoints();
+                }
+            });
+            
+            // 点云透明度控制
+            landPointsFolder.addBinding(globeConfig, 'landPointOpacity', {
+                min: 0.1,
+                max: 1.0,
+                step: 0.05,
+                label: '透明度'
+            }).on('change', (ev) => {
+                if (earth.landPoints && earth.landPoints.material) {
+                    earth.landPoints.material.opacity = ev.value;
+                    earth.landPoints.material.needsUpdate = true;
+                }
+            });
+
+            // 点云统计信息
+            const landPointStats = { pointCount: 0 };
+            landPointsFolder.addBinding(landPointStats, 'pointCount', {
+                readonly: true,
+                label: '点数量'
+            });
+            
+            // 更新点云统计的函数
+            const updateLandPointStats = () => {
+                if (earth.landPoints && earth.landPoints.geometry) {
+                    const positions = earth.landPoints.geometry.attributes.position;
+                    landPointStats.pointCount = positions ? positions.count : 0;
+                    landPointsFolder.refresh();
+                }
+            };
+            
+            // 重置陆地点云参数
+            landPointsFolder.addButton({
+                title: '重置参数'
+            }).on('click', async () => {
+                // 重置配置到默认值
+                globeConfig.showLandPoints = true;
+                globeConfig.landPointSize = 1.0;
+                globeConfig.landPointColor = '#ffffff';
+                globeConfig.landPointDensity = 1.0;
+                globeConfig.landPointOpacity = 0.8;
+                
+                // 刷新控制面板
+                landPointsFolder.refresh();
+                
+                // 重新创建陆地点云
+                await earth.recreateLandPoints();
+                updateLandPointStats();
+            });
+            
+            // 强制刷新陆地点云
+            landPointsFolder.addButton({
+                title: '刷新点云'
+            }).on('click', async () => {
+                await earth.recreateLandPoints();
+                updateLandPointStats();
+            });
+            
+            // 初始统计更新
+            setTimeout(updateLandPointStats, 1000);
 
             // 贸易数据统计
             const tradeFolder = earthFolder.addFolder({title: '贸易数据统计'})

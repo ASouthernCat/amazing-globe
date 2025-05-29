@@ -34,7 +34,11 @@ export default class Earth extends THREE.Object3D {
      *   ringThickness?: number,
      *   countriesData?: any,
      *   arcsData?: any[],
-     *   pointsData?: any[]
+     *   pointsData?: any[],
+     *   showLandPoints?: boolean,
+     *   landPointSize?: number,
+     *   landPointColor?: string,
+     *   landPointDensity?: number
      * }} config 
      */
     constructor(config = {}) {
@@ -52,6 +56,7 @@ export default class Earth extends THREE.Object3D {
             emissiveIntensity = 0.1,
             shininess = 50,
             polygonColor = '#ffffff',
+            polygonOpacity = 0.05,
             arcTime = 2000,
             maxRings = 3,
             autoRotate = true,
@@ -66,7 +71,11 @@ export default class Earth extends THREE.Object3D {
             ringThickness = 0.15,
             countriesData = countries,
             arcsData = [],
-            pointsData = []
+            pointsData = [],
+            showLandPoints = true,
+            landPointSize = 1.0,
+            landPointColor = '#ffffff',
+            landPointDensity = 1.0
         } = config;
 
         this.name = 'EarthGlobe';
@@ -85,6 +94,7 @@ export default class Earth extends THREE.Object3D {
             emissiveIntensity: this.config.emissiveIntensity ?? emissiveIntensity,
             shininess: this.config.shininess ?? shininess,
             polygonColor: this.config.polygonColor ?? polygonColor,
+            polygonOpacity: this.config.polygonOpacity ?? polygonOpacity,
             arcTime: this.config.arcTime ?? arcTime,
             maxRings: this.config.maxRings ?? maxRings,
             autoRotate: this.config.autoRotate ?? autoRotate,
@@ -96,7 +106,11 @@ export default class Earth extends THREE.Object3D {
             waveDuration: this.config.waveDuration ?? waveDuration,
             waveDelay: this.config.waveDelay ?? waveDelay,
             baseCircleScale: this.config.baseCircleScale ?? baseCircleScale,
-            ringThickness: this.config.ringThickness ?? ringThickness
+            ringThickness: this.config.ringThickness ?? ringThickness,
+            showLandPoints: this.config.showLandPoints ?? showLandPoints,
+            landPointSize: this.config.landPointSize ?? landPointSize,
+            landPointColor: this.config.landPointColor ?? landPointColor,
+            landPointDensity: this.config.landPointDensity ?? landPointDensity
         });
 
         // 数据存储
@@ -137,6 +151,11 @@ export default class Earth extends THREE.Object3D {
 
         // 创建环形动画
         this.createRings();
+
+        // 创建基于纹理的陆地点云
+        if (this.config.showLandPoints) {
+            this.createLandPoints();
+        }
     }
 
     createEarth() {
@@ -208,7 +227,7 @@ export default class Earth extends THREE.Object3D {
                 const material = new THREE.LineBasicMaterial({
                     color: this.config.polygonColor,
                     transparent: true,
-                    opacity: 0.1,
+                    opacity: this.config.polygonOpacity,
                 });
 
                 const line = new THREE.Line(geometry, material);
@@ -656,5 +675,182 @@ export default class Earth extends THREE.Object3D {
         if (newCountriesData) {
             this.createCountries();
         }
+    }
+
+    /**
+     * 更新陆地点云显示状态
+     */
+    updateLandPointsVisibility(show) {
+        this.config.showLandPoints = show;
+        if (show && !this.landPoints) {
+            this.createLandPoints();
+        } else if (!show && this.landPoints) {
+            this.remove(this.landPoints);
+            if (this.landPoints.geometry) {
+                this.landPoints.geometry.dispose();
+            }
+            if (this.landPoints.material) {
+                this.landPoints.material.dispose();
+            }
+            this.landPoints = null;
+        }
+    }
+
+    /**
+     * 重新创建陆地点云（例如密度配置改变时）
+     */
+    async recreateLandPoints() {
+        if (this.landPoints) {
+            this.remove(this.landPoints);
+            if (this.landPoints.geometry) {
+                this.landPoints.geometry.dispose();
+            }
+            if (this.landPoints.material) {
+                this.landPoints.material.dispose();
+            }
+            this.landPoints = null;
+        }
+        
+        if (this.config.showLandPoints) {
+            await this.createLandPoints();
+        }
+    }
+
+    /**
+     * 创建基于纹理的陆地点云
+     */
+    async createLandPoints() {
+        try {
+            // 加载地球纹理
+            const loader = new THREE.TextureLoader();
+            const earthTexture = await this.loadTexture('/texture/earth/github/earth.jpg');
+            
+            // 创建canvas来读取纹理数据
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 创建图像对象
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            
+            return new Promise((resolve, reject) => {
+                img.onload = () => {
+                    // 设置canvas尺寸（密度越大分辨率越高）
+                    const baseResolution = 512;
+                    const resolution = baseResolution * this.config.landPointDensity;
+                    canvas.width = resolution;
+                    canvas.height = resolution / 2; // 2:1 比例的等矩形投影
+                    
+                    // 绘制图像到canvas
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // 获取像素数据
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    
+                    // 分析像素并创建点云
+                    const landPositions = this.extractLandPositions(data, canvas.width, canvas.height);
+                    
+                    if (landPositions.length > 0) {
+                        this.createLandPointsGeometry(landPositions);
+                    }
+                    
+                    resolve();
+                };
+                
+                img.onerror = () => {
+                    console.warn('无法加载地球纹理，跳过陆地点云创建');
+                    resolve();
+                };
+                
+                img.src = '/texture/earth/github/earth.jpg';
+            });
+        } catch (error) {
+            console.warn('创建陆地点云时出错:', error);
+        }
+    }
+
+    /**
+     * 从纹理数据中提取陆地位置
+     */
+    extractLandPositions(data, width, height) {
+        const positions = [];
+        const threshold = 128; // 黑白阈值
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const index = (y * width + x) * 4;
+                const r = data[index];
+                const g = data[index + 1];
+                const b = data[index + 2];
+                
+                // 计算灰度值
+                const grayscale = (r + g + b) / 3;
+                
+                // 如果是黑色区域（陆地），创建点
+                if (grayscale < threshold) {
+                    // 添加一些随机性以避免过于规则的网格
+                    if (Math.random() < 0.3) continue;
+                    
+                    // 将像素坐标转换为经纬度
+                    const lon = (x / width) * 360 - 180;
+                    const lat = 90 - (y / height) * 180;
+                    
+                    // 转换为3D坐标
+                    const position = this.latLngToVector3(lat, lon, this.radius + 0.5);
+                    positions.push(position.x, position.y, position.z);
+                }
+            }
+        }
+        
+        return positions;
+    }
+
+    /**
+     * 创建陆地点云几何体
+     */
+    createLandPointsGeometry(positions) {
+        // 创建几何体
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        
+        // 加载点纹理
+        const loader = new THREE.TextureLoader();
+        const dotTexture = loader.load('/texture/earth/github/dot.png');
+        
+        // 创建材质
+        const material = new THREE.PointsMaterial({
+            color: new THREE.Color(this.config.landPointColor),
+            size: this.config.landPointSize,
+            map: dotTexture,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthTest: true,
+            depthWrite: false,
+            vertexColors: false
+        });
+        
+        // 创建点云对象
+        this.landPoints = new THREE.Points(geometry, material);
+        this.landPoints.name = 'LandPoints';
+        
+        // 添加到场景
+        this.add(this.landPoints);
+    }
+
+    /**
+     * 异步加载纹理的辅助方法
+     */
+    loadTexture(url) {
+        return new Promise((resolve, reject) => {
+            const loader = new THREE.TextureLoader();
+            loader.load(
+                url,
+                resolve,
+                undefined,
+                reject
+            );
+        });
     }
 } 
