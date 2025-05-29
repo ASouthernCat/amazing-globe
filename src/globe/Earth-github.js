@@ -984,10 +984,6 @@ export default class Earth extends THREE.Object3D {
      */
     async createLandPoints() {
         try {
-            // 加载地球纹理
-            const loader = new THREE.TextureLoader();
-            const earthTexture = await this.loadTexture('/texture/earth/github/earth.jpg');
-            
             // 创建canvas来读取纹理数据
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');

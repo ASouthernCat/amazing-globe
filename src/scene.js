@@ -8,6 +8,7 @@ import { EffectComposer, RenderPass } from 'postprocessing';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
 import { initEffect } from './effect';
 import { arcsData, majorTradeCities } from './globe/data/arcs';
+import gsap from 'gsap';
 
 function initScene() {
     console.log('initScene');
@@ -136,6 +137,7 @@ function initScene() {
         const { default: Earth } = await import('./globe/Earth-simple');
         earth = new Earth()
         scene.add(earth)
+        earthEnterAnimation(earth)
     }
 
     async function createEarthThreejsJourney() {
@@ -148,6 +150,7 @@ function initScene() {
             atmosphereTwilightColor: earthParameters.atmosphereTwilightColor
         })
         scene.add(earth)
+        earthEnterAnimation(earth)
         earthFolder.addBinding(earthParameters, 'atmosphereDayColor').on('change', ev=>{
             earth.earthMaterial.uniforms.uAtmosphereDayColor.value.set(earthParameters.atmosphereDayColor)
             earth.atmosphereMaterial.uniforms.uAtmosphereDayColor.value.set(earthParameters.atmosphereDayColor)
@@ -254,6 +257,7 @@ function initScene() {
             };
             earth = new Earth(globeConfig)
             scene.add(earth)
+            earthEnterAnimation(earth)
 
             // 调试            
             // 地球基本控制
@@ -532,6 +536,26 @@ function initScene() {
         } catch (error) {
             console.error('Error creating Earth:', error);
         }
+    }
+
+    /**
+     * 
+     * @param {THREE.Object3D} earth 
+     */
+    function earthEnterAnimation(earth) {
+        earth.scale.set(0.01, 0.01, 0.01)
+        gsap.to(earth.scale, {
+            duration: 1,
+            ease: 'back.out(2.0)',
+            x: 1,
+            y: 1,
+            z: 1
+        })
+        gsap.to(earth.rotation, {
+            duration: 1,
+            ease: 'power2.out',
+            y: Math.PI * 8
+        })
     }
 
     initResizeEventListener([camera], [renderer, composer]);
