@@ -135,9 +135,11 @@ function initScene() {
 
     async function ceateEarthSimple() {
         const { default: Earth } = await import('./globe/Earth-simple');
-        earth = new Earth()
+        earth = new Earth(undefined, ()=>{
+            earthEnterAnimation(earth)
+        })
+        onEarthLoading(earth)
         scene.add(earth)
-        earthEnterAnimation(earth)
     }
 
     async function createEarthThreejsJourney() {
@@ -148,9 +150,11 @@ function initScene() {
         earth = new Earth({
             atmosphereDayColor: earthParameters.atmosphereDayColor,
             atmosphereTwilightColor: earthParameters.atmosphereTwilightColor
+        }, ()=>{
+            earthEnterAnimation(earth)
         })
+        onEarthLoading(earth)
         scene.add(earth)
-        earthEnterAnimation(earth)
         earthFolder.addBinding(earthParameters, 'atmosphereDayColor').on('change', ev=>{
             earth.earthMaterial.uniforms.uAtmosphereDayColor.value.set(earthParameters.atmosphereDayColor)
             earth.atmosphereMaterial.uniforms.uAtmosphereDayColor.value.set(earthParameters.atmosphereDayColor)
@@ -255,9 +259,11 @@ function initScene() {
                 arcsData: arcsData,
                 pointsData: pointsData
             };
-            earth = new Earth(globeConfig)
+            earth = new Earth(globeConfig, ()=>{
+                earthEnterAnimation(earth)
+            })
+            onEarthLoading(earth)
             scene.add(earth)
-            earthEnterAnimation(earth)
 
             // 调试            
             // 地球基本控制
@@ -538,24 +544,50 @@ function initScene() {
         }
     }
 
+    function onEarthLoading(earth){
+        document.querySelector('.loader-container').classList.remove('loaded')
+        earth.visible = false
+    }
+
     /**
      * 
      * @param {THREE.Object3D} earth 
      */
     function earthEnterAnimation(earth) {
-        earth.scale.set(0.01, 0.01, 0.01)
-        gsap.to(earth.scale, {
-            duration: 1,
-            ease: 'back.out(2.0)',
+        earth.visible = false
+        document.querySelector('.loader-container').classList.add('loaded')
+
+        const earthTimeline = gsap.timeline()
+        earthTimeline.delay(0.5)
+        earthTimeline.eventCallback('onStart', ()=>{
+            earth.scale.set(0.01, 0.01, 0.01)
+            earth.visible = true
+        })
+        
+        // 第一阶段：从极小放大到超过正常大小（1.3倍）
+        earthTimeline.to(earth.scale, {
+            duration: 1.0,
+            ease: 'power2.inOut',
+            x: 1.3,
+            y: 1.3,
+            z: 1.3
+        })
+        
+        // 第二阶段：快速收缩到正常大小（1倍），形成弹性效果
+        earthTimeline.to(earth.scale, {
+            duration: 0.6,
+            ease: 'back.out(3.0)',
             x: 1,
             y: 1,
             z: 1
-        })
-        gsap.to(earth.rotation, {
-            duration: 1,
-            ease: 'power2.out',
-            y: Math.PI * 8
-        })
+        }, '-=0.2') // 稍微重叠开始时间，使动画更流畅
+        
+        // 旋转动画：在整个缩放过程中持续旋转
+        earthTimeline.to(earth.rotation, {
+            duration: 2.5,
+            ease: 'power3.out',
+            y: Math.PI * 10
+        }, 0) // 从动画开始时就开始旋转
     }
 
     initResizeEventListener([camera], [renderer, composer]);

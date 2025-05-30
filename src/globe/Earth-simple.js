@@ -14,10 +14,20 @@ export default class Earth extends THREE.Object3D {
       * glowColor?: THREE.Color
       * atmosphereColor?: THREE.Color
      * }} config 
+     * @param {Function} onLoad - 加载完成回调函数
      */
-    constructor(config = {}) {
+    constructor(config = {}, onLoad = () => {}) {
         const { radius = 2, segments = 64, glowColor = new THREE.Color(0x00aaff), atmosphereColor = new THREE.Color(0x00aaff)} = config;
         super();
+
+        this.hasLoaded = false;
+        this.onLoad = ()=>{
+            if(!this.hasLoaded){
+                onLoad()
+                this.hasLoaded = true
+            }
+        };
+
         this.name = 'Earth'
         this.radius = radius;
         this.segments = segments;
@@ -25,10 +35,13 @@ export default class Earth extends THREE.Object3D {
         this.atmosphereColor = atmosphereColor;
 
         this.earthGeometry = new THREE.SphereGeometry(this.radius, this.segments, this.segments);
+        this.earthTexture = new THREE.TextureLoader().load('texture/earth/day.jpg',()=>{
+            this.onLoad()
+        })
         this.earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 time: { value: 0 },
-                earthTexture: { value: new THREE.TextureLoader().load('texture/earth/day.jpg') },
+                earthTexture: { value: this.earthTexture },
                 glowColor: { value: this.glowColor },
             },
             vertexShader: earthVertexShader,

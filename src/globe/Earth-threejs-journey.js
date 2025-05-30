@@ -17,10 +17,20 @@ export default class Earth extends THREE.Object3D {
       * atmosphereDayColor?: string
       * atmosphereTwilightColor?: string
      * }} config 
+     * @param {Function} onLoad - 加载完成回调函数
      */
-    constructor(config = {}) {
+    constructor(config = {}, onLoad = () => {}) {
         const { radius = 2, segments = 64, atmosphereDayColor = '#00aaff', atmosphereTwilightColor = '#ff6600' } = config;
         super();
+
+        this.hasLoaded = false;
+        this.onLoad = ()=>{
+            if(!this.hasLoaded){
+                onLoad()
+                this.hasLoaded = true
+            }
+        };
+        
         this.name = 'Earth'
         this.radius = radius;
         this.segments = segments;
@@ -32,16 +42,23 @@ export default class Earth extends THREE.Object3D {
     }
 
     createEarth() {
+        let textureCount = 0
+        const checkTextureLoaded = ()=>{
+            textureCount++
+            if(textureCount === 3){
+                this.onLoad()
+            }
+        }
         // Textures
-        const earthDayTexture = textureLoader.load('day.jpg')
+        const earthDayTexture = textureLoader.load('day.jpg', checkTextureLoaded)
         earthDayTexture.colorSpace = THREE.SRGBColorSpace
         earthDayTexture.anisotropy = 8
 
-        const earthNightTexture = textureLoader.load('night.jpg')
+        const earthNightTexture = textureLoader.load('night.jpg', checkTextureLoaded)
         earthNightTexture.colorSpace = THREE.SRGBColorSpace
         earthNightTexture.anisotropy = 8
 
-        const earthSpecularCloudsTexture = textureLoader.load('specularClouds.jpg')
+        const earthSpecularCloudsTexture = textureLoader.load('specularClouds.jpg', checkTextureLoaded)
         earthSpecularCloudsTexture.anisotropy = 8
 
         // Mesh

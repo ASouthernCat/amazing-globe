@@ -42,8 +42,9 @@ export default class Earth extends THREE.Object3D {
      *   landPointDensity?: number,
      *   landPointOpacity?: number
      * }} config 
+     * @param {Function} onLoad - 加载完成回调函数
      */
-    constructor(config = {}) {
+    constructor(config = {}, onLoad = () => {}) {
         super();
         
         const {
@@ -85,6 +86,14 @@ export default class Earth extends THREE.Object3D {
         this.radius = radius;
         this.segments = segments;
         this.config = config;
+        
+        this.hasLoaded = false;
+        this.onLoad = ()=>{
+            if(!this.hasLoaded){
+                onLoad()
+                this.hasLoaded = true
+            }
+        };
         
         // 为未设置的属性设置默认值
         Object.assign(this.config, {
@@ -264,6 +273,8 @@ export default class Earth extends THREE.Object3D {
         // 创建基于纹理的陆地点云
         if (this.config.showLandPoints) {
             this.createLandPoints();
+        }else{
+            this.onLoad()
         }
     }
 
@@ -1014,6 +1025,7 @@ export default class Earth extends THREE.Object3D {
                         this.createLandPointsGeometry(landPositions);
                     }
                     
+                    this.onLoad()
                     resolve();
                 };
                 
