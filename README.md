@@ -1,5 +1,7 @@
 # amazing-globe
 
+![globe](globe.png)
+
 # ✅ run
 
 ```shell
