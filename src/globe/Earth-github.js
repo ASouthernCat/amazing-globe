@@ -5,6 +5,14 @@ import atmosphereVertexShader from './shader/simple-earth/atmosphere.vs';
 
 import countries from './data/globe.json';
 
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+
+const gltfLoader = new GLTFLoader()
+const dracoLoader = new DRACOLoader()
+dracoLoader.setDecoderPath('/draco/')
+gltfLoader.setDRACOLoader(dracoLoader)
+
 export default class Earth extends THREE.Object3D {
     /**
      * EarthGlobe - 3D地球
@@ -40,7 +48,13 @@ export default class Earth extends THREE.Object3D {
      *   landPointSize?: number,
      *   landPointColor?: string,
      *   landPointDensity?: number,
-     *   landPointOpacity?: number
+     *   landPointOpacity?: number,
+     *   showFlightRoutes?: boolean,
+     *   flightRoutesData?: any[],
+     *   flightAnimationSpeed?: number,
+     *   flightPauseTime?: number,
+     *   airplaneScale?: number,
+     *   airplaneRotationAdjustment?: number,
      * }} config 
      * @param {Function} onLoad - 加载完成回调函数
      */
@@ -79,14 +93,20 @@ export default class Earth extends THREE.Object3D {
             landPointSize = 1.0,
             landPointColor = '#ffffff',
             landPointDensity = 1.0,
-            landPointOpacity = 0.8
+            landPointOpacity = 0.8,
+            showFlightRoutes = false,
+            flightRoutesData = [],
+            flightAnimationSpeed = 0.01,
+            flightPauseTime = 2000,
+            airplaneScale = 0.01,
+            airplaneRotationAdjustment = 0,
         } = config;
 
         this.name = 'EarthGlobe';
         this.radius = radius;
         this.segments = segments;
         this.config = config;
-        
+
         this.hasLoaded = false;
         this.onLoad = ()=>{
             if(!this.hasLoaded){
@@ -123,13 +143,23 @@ export default class Earth extends THREE.Object3D {
             landPointSize: this.config.landPointSize ?? landPointSize,
             landPointColor: this.config.landPointColor ?? landPointColor,
             landPointDensity: this.config.landPointDensity ?? landPointDensity,
-            landPointOpacity: this.config.landPointOpacity ?? landPointOpacity
+            landPointOpacity: this.config.landPointOpacity ?? landPointOpacity,
+            showFlightRoutes: this.config.showFlightRoutes ?? showFlightRoutes,
+            flightRoutesData: this.config.flightRoutesData ?? flightRoutesData,
+            flightAnimationSpeed: this.config.flightAnimationSpeed ?? flightAnimationSpeed,
+            flightPauseTime: this.config.flightPauseTime ?? flightPauseTime,
+            airplaneScale: this.config.airplaneScale ?? airplaneScale,
+            airplaneRotationAdjustment: this.config.airplaneRotationAdjustment ?? airplaneRotationAdjustment,
         });
+
+        this.airplaneModel = new THREE.Object3D();
+        this.airplaneCamera = new THREE.PerspectiveCamera(75, 1, 0.1, 10000);
 
         // 数据存储
         this.countriesData = countriesData;
         this.arcsData = arcsData;
         this.pointsData = pointsData;
+        this.flightRoutesData = this.config.flightRoutesData || [];
 
         // 动画相关
         this.time = 0;
@@ -273,8 +303,19 @@ export default class Earth extends THREE.Object3D {
         // 创建基于纹理的陆地点云
         if (this.config.showLandPoints) {
             this.createLandPoints();
-        }else{
-            this.onLoad()
+        }
+
+        // 创建飞机航线
+        if (this.config.showFlightRoutes && this.flightRoutesData.length > 0) {
+            this.createFlightRoutes().then(() => {
+                // 如果没有陆地点云，在飞机航线创建完成后调用onLoad
+                if (!this.config.showLandPoints) {
+                    this.onLoad();
+                }
+            });
+        } else if (!this.config.showLandPoints) {
+            // 如果既没有陆地点云也没有飞机航线，直接调用onLoad
+            this.onLoad();
         }
     }
 
@@ -630,6 +671,14 @@ export default class Earth extends THREE.Object3D {
 
         // 批量更新弧线动画
         this.updateArcsAnimationBatch(this.time);
+
+        // 更新飞机航线动画
+        if (this.config.showFlightRoutes) {
+            this.updateFlightRoutesAnimation(this.time * 1000); // 转换为毫秒
+        }
+
+        // 更新飞机相机的平滑跟随
+        this.updateFlightCameraSmooth(delta);
     }
 
     /**
@@ -883,6 +932,24 @@ export default class Earth extends THREE.Object3D {
             });
         }
 
+        // 清理飞机航线资源
+        if (this.flightRouteInstances) {
+            this.flightRouteInstances.forEach(instance => {
+                if (instance.airplane) {
+                    instance.airplane.traverse(child => {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(mat => mat.dispose());
+                            } else {
+                                child.material.dispose();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
         // 清理几何体和材质
         this.traverse(child => {
             if (child.geometry) {
@@ -1122,6 +1189,466 @@ export default class Earth extends THREE.Object3D {
                 undefined,
                 reject
             );
+        });
+    }
+
+    /**
+     * 创建飞机航线
+     */
+    async createFlightRoutes() {
+        this.flightRoutesGroup = new THREE.Group();
+        this.flightRoutesGroup.name = 'FlightRoutes';
+        
+        // 存储飞机航线数据
+        this.flightRouteInstances = [];
+
+        // 加载飞机模型
+        try {
+            this.airplaneModel = await this.loadAirplaneModel();
+            if (this.airplaneModel) {
+                // 缩放飞机模型
+                this.airplaneModel.scale.setScalar(this.config.airplaneScale);
+                // 初始化飞机位置和可见性
+                this.airplaneModel.visible = false;
+            }
+        } catch (error) {
+            console.warn('Failed to load airplane model:', error);
+        }
+        
+        // 为每条航线创建虚线轨迹和飞机
+        for (let i = 0; i < this.flightRoutesData.length; i++) {
+            const route = this.flightRoutesData[i];
+            await this.createSingleFlightRoute(route, i);
+        }
+        
+        this.add(this.flightRoutesGroup);
+    }
+
+    /**
+     * 创建单条航线
+     */
+    async createSingleFlightRoute(route, index) {
+        const routeGroup = new THREE.Group();
+        routeGroup.name = `FlightRoute_${route.id}`;
+        
+        // 计算航线轨迹点
+        const startPos = this.latLngToVector3(route.startLat, route.startLng, this.radius);
+        const endPos = this.latLngToVector3(route.endLat, route.endLng, this.radius);
+        const angle = startPos.angleTo(endPos);
+        const arcHeight = this.radius * (route.arcAlt || 0.3);
+        
+        // 创建航线曲线
+        const curve = this.createCurve(startPos, endPos, angle, arcHeight, Math.PI / 3);
+        // 增加点数以获得更平滑的动画
+        const routePoints = curve.getPoints(200);
+        
+        // 创建虚线轨迹
+        this.createDashedTrack(routeGroup, routePoints, route.color);
+        
+        const airplane = this.airplaneModel.clone();
+        airplane.name = 'airplane';
+        const camera = this.airplaneCamera.clone();
+        
+        // 优化相机设置 - 设置更合适的距离和角度
+        camera.position.set(0, 600, -800);
+        camera.lookAt(0, 0, 100);
+        
+        airplane.add(camera);
+        airplane.userData.camera = camera;
+
+        airplane.position.copy(routePoints[0]);
+        routeGroup.add(airplane);
+        
+        // 存储航线实例数据
+        const routeInstance = {
+            group: routeGroup,
+            route: route,
+            index: index,
+            points: routePoints,
+            airplane: airplane,
+            animationProgress: 0,
+            direction: 1, // 1: 正向, -1: 反向
+            isReturning: false,
+            pauseStartTime: 0,
+            isPaused: false,
+            opacity: 0,
+            // 添加平滑插值缓存
+            lastPosition: routePoints[0].clone(),
+            lastQuaternion: new THREE.Quaternion(),
+            targetPosition: routePoints[0].clone(),
+            targetQuaternion: new THREE.Quaternion(),
+            lastDirection: null,
+            needsDirectionChange: false
+        };
+        
+        this.flightRouteInstances.push(routeInstance);
+        this.flightRoutesGroup.add(routeGroup);
+    }
+
+    /**
+     * 创建虚线轨迹
+     */
+    createDashedTrack(routeGroup, points, color) {
+        // 创建线段几何体
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        
+        // 创建虚线材质
+        const material = new THREE.LineDashedMaterial({
+            color: new THREE.Color(color),
+            dashSize: 3,
+            gapSize: 1.5,
+        });
+        
+        // 创建虚线对象
+        const dashedLine = new THREE.Line(geometry, material);
+        dashedLine.computeLineDistances(); // 计算线段距离，虚线效果需要
+        dashedLine.renderOrder = 6;
+        dashedLine.name = 'track';
+        
+        routeGroup.add(dashedLine);
+    }
+
+    /**
+     * 加载飞机模型
+     */
+    async loadAirplaneModel() {
+        return new Promise((resolve, reject) => {
+            gltfLoader.load(
+                '/models/airplane/airplane.glb',
+                (gltf) => {
+                    const airplane = gltf.scene.clone();
+                    airplane.name = 'airplane';
+                    
+                    // 确保材质正确设置
+                    airplane.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = false;
+                            child.receiveShadow = false;
+                            if (child.material) {
+                                child.material.transparent = true;
+                            }
+                        }
+                    });
+                    
+                    resolve(airplane);
+                },
+                (progress) => {
+                    // 加载进度
+                },
+                (error) => {
+                    reject(error);
+                }
+            );
+        });
+    }
+
+    /**
+     * 更新飞机航线动画
+     */
+    updateFlightRoutesAnimation(currentTime) {
+        if (!this.flightRouteInstances || this.flightRouteInstances.length === 0) return;
+        
+        this.flightRouteInstances.forEach(routeInstance => {
+            this.updateSingleFlightRoute(routeInstance, currentTime);
+        });
+    }
+
+    /**
+     * 更新单个航线动画
+     */
+    updateSingleFlightRoute(routeInstance, currentTime) {
+        const { airplane, points, route } = routeInstance;
+        if (!airplane || !points || points.length === 0) return;
+        
+        // 处理暂停逻辑
+        if (routeInstance.isPaused) {
+            const pauseDuration = currentTime - routeInstance.pauseStartTime;
+            if (pauseDuration >= this.config.flightPauseTime) {
+                routeInstance.isPaused = false;
+                routeInstance.direction *= -1; // 切换方向
+                routeInstance.isReturning = !routeInstance.isReturning;
+                routeInstance.animationProgress = routeInstance.isReturning ? 1 : 0;
+                routeInstance.needsDirectionChange = false; // 重置标记
+                
+                // 方向切换后，重新计算初始朝向以避免突变
+                const newProgress = routeInstance.animationProgress;
+                const newPosition = this.getSplineInterpolatedPosition(points, newProgress);
+                
+                // 计算新方向的初始朝向
+                const lookAheadDistance = 0.01; // 稍大一点的前瞻距离
+                const lookAheadProgress = Math.max(0, Math.min(1, newProgress + lookAheadDistance * routeInstance.direction));
+                const lookAheadPosition = this.getSplineInterpolatedPosition(points, lookAheadProgress);
+                const newDirection = new THREE.Vector3().subVectors(lookAheadPosition, newPosition).normalize();
+                
+                if (newDirection.length() > 0) {
+                    routeInstance.lastDirection = newDirection.clone();
+                }
+            } else {
+                // 在暂停期间，保持飞机朝向稳定，避免视角突变
+                return; // 仍在暂停中
+            }
+        }
+        
+        // 更新动画进度 - 使用固定的时间步长确保平滑
+        const speed = this.config.flightAnimationSpeed / 1000;
+        const deltaProgress = speed * routeInstance.direction;
+        routeInstance.animationProgress += deltaProgress;
+        
+        // 检查是否到达端点
+        if (routeInstance.animationProgress >= 1 || routeInstance.animationProgress <= 0) {
+            routeInstance.animationProgress = Math.max(0, Math.min(1, routeInstance.animationProgress));
+            routeInstance.isPaused = true;
+            routeInstance.pauseStartTime = currentTime;
+            // 标记需要方向切换，但不立即执行
+            routeInstance.needsDirectionChange = true;
+        }
+        
+        // 确保progress始终在有效范围内，防止插值计算错误
+        const progress = Math.max(0, Math.min(1, routeInstance.animationProgress));
+        
+        // 使用样条插值获得更平滑的位置
+        const position = this.getSplineInterpolatedPosition(points, progress);
+        
+        // 改进的方向计算 - 避免在端点处的突变
+        let direction;
+        
+        // 在端点附近时使用特殊的方向计算
+        const endpointThreshold = 0.02; // 端点阈值
+        if (progress <= endpointThreshold || progress >= (1 - endpointThreshold)) {
+            // 在端点附近，使用更稳定的方向计算
+            if (routeInstance.lastDirection && routeInstance.lastDirection.length() > 0) {
+                // 如果有上一个有效方向，继续使用它保持稳定
+                direction = routeInstance.lastDirection.clone();
+            } else {
+                // 使用轨迹的总体方向
+                const startPoint = points[0];
+                const endPoint = points[points.length - 1];
+                direction = new THREE.Vector3().subVectors(endPoint, startPoint).normalize();
+                if (routeInstance.direction < 0) {
+                    direction.negate(); // 如果是返回方向，反转
+                }
+            }
+        } else {
+            // 在轨迹中间时，使用正常的前瞻计算
+            const lookAheadDistance = 0.005;
+            const lookAheadProgress = Math.max(0, Math.min(1, progress + lookAheadDistance * routeInstance.direction));
+            const lookAheadPosition = this.getSplineInterpolatedPosition(points, lookAheadProgress);
+            direction = new THREE.Vector3().subVectors(lookAheadPosition, position).normalize();
+            
+            // 验证并保存有效的方向
+            if (direction.length() > 0 && isFinite(direction.x) && isFinite(direction.y) && isFinite(direction.z)) {
+                routeInstance.lastDirection = direction.clone();
+            } else if (routeInstance.lastDirection && routeInstance.lastDirection.length() > 0) {
+                direction = routeInstance.lastDirection.clone();
+            } else {
+                // 使用默认方向
+                direction = new THREE.Vector3().subVectors(points[Math.min(1, points.length - 1)], points[0]).normalize();
+                if (routeInstance.direction < 0) {
+                    direction.negate();
+                }
+            }
+        }
+        
+        // 平滑更新飞机位置
+        const smoothingFactor = 0.15; // 平滑系数，值越小越平滑但延迟越大
+        routeInstance.targetPosition.copy(position);
+        routeInstance.lastPosition.lerp(routeInstance.targetPosition, smoothingFactor);
+        airplane.position.copy(routeInstance.lastPosition);
+        
+        // 设置飞机朝向 - 使用更平滑的旋转方法
+        this.setAirplaneOrientationSmooth(airplane, direction, position, routeInstance);
+        
+        // 计算透明度（渐显渐隐效果）
+        const fadeDistance = 0.15; // 渐变区域占总长度的比例
+        let opacity = 1;
+        
+        if (progress < fadeDistance) {
+            // 起始渐显
+            opacity = progress / fadeDistance;
+        } else if (progress > (1 - fadeDistance)) {
+            // 结束渐隐
+            opacity = (1 - progress) / fadeDistance;
+        }
+        
+        // 应用透明度
+        airplane.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material.opacity = opacity;
+                child.material.transparent = true;
+            }
+        });
+        
+        // 控制可见性
+        airplane.visible = opacity > 0.01;
+        
+        routeInstance.opacity = opacity;
+    }
+
+    /**
+     * 使用样条插值获得更平滑的位置
+     */
+    getSplineInterpolatedPosition(points, progress) {
+        if (!points || points.length === 0) {
+            console.warn('getSplineInterpolatedPosition: points array is empty or undefined');
+            return new THREE.Vector3();
+        }
+
+        // 确保progress在有效范围内
+        progress = Math.max(0, Math.min(1, progress));
+
+        if (points.length === 1) {
+            return points[0].clone();
+        }
+
+        if (points.length < 4) {
+            // 如果点数不足，使用线性插值
+            const index = progress * (points.length - 1);
+            const currentIndex = Math.floor(index);
+            const nextIndex = Math.min(currentIndex + 1, points.length - 1);
+            const localProgress = index - currentIndex;
+            
+            // 确保索引在有效范围内
+            const safeCurrentIndex = Math.max(0, Math.min(currentIndex, points.length - 1));
+            const safeNextIndex = Math.max(0, Math.min(nextIndex, points.length - 1));
+            
+            return new THREE.Vector3().lerpVectors(points[safeCurrentIndex], points[safeNextIndex], localProgress);
+        }
+        
+        // 使用Catmull-Rom样条插值
+        const totalSegments = points.length - 1;
+        const segmentProgress = progress * totalSegments;
+        const segmentIndex = Math.floor(segmentProgress);
+        const localProgress = segmentProgress - segmentIndex;
+        
+        // 确保索引在有效范围内
+        const safeSegmentIndex = Math.max(0, Math.min(segmentIndex, points.length - 2));
+        const p0Index = Math.max(0, safeSegmentIndex - 1);
+        const p1Index = safeSegmentIndex;
+        const p2Index = Math.min(safeSegmentIndex + 1, points.length - 1);
+        const p3Index = Math.min(safeSegmentIndex + 2, points.length - 1);
+        
+        const p0 = points[p0Index];
+        const p1 = points[p1Index];
+        const p2 = points[p2Index];
+        const p3 = points[p3Index];
+        
+        // 验证所有点都存在
+        if (!p0 || !p1 || !p2 || !p3) {
+            console.warn('getSplineInterpolatedPosition: One or more control points are undefined', {
+                p0Index, p1Index, p2Index, p3Index,
+                pointsLength: points.length,
+                progress: progress
+            });
+            // 降级到线性插值
+            const fallbackIndex = Math.min(p1Index, points.length - 1);
+            const fallbackNextIndex = Math.min(p1Index + 1, points.length - 1);
+            return new THREE.Vector3().lerpVectors(
+                points[fallbackIndex] || new THREE.Vector3(),
+                points[fallbackNextIndex] || points[fallbackIndex] || new THREE.Vector3(),
+                localProgress
+            );
+        }
+        
+        // Catmull-Rom插值公式
+        const t = localProgress;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        
+        const result = new THREE.Vector3();
+        result.x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+        result.y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+        result.z = 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+        
+        return result;
+    }
+
+    /**
+     * 设置飞机的朝向，使用更平滑的旋转方法
+     */
+    setAirplaneOrientationSmooth(airplane, direction, position, routeInstance) {
+        // 计算从地心到飞机位置的向量（用作up向量）
+        const up = position.clone().normalize();
+        
+        // 计算right向量（垂直于direction和up的向量）
+        const right = new THREE.Vector3().crossVectors(up, direction).normalize();
+        
+        // 重新计算up向量确保正交
+        const correctedUp = new THREE.Vector3().crossVectors(direction, right).normalize();
+        
+        // 创建目标旋转矩阵
+        const rotationMatrix = new THREE.Matrix4();
+        rotationMatrix.makeBasis(right, correctedUp, direction);
+        
+        // 从旋转矩阵提取四元数
+        routeInstance.targetQuaternion.setFromRotationMatrix(rotationMatrix);
+        
+        // 应用旋转调整（如果需要）
+        const adjustmentAngle = this.config.airplaneRotationAdjustment || 0;
+        if (adjustmentAngle !== 0) {
+            const adjustmentQuaternion = new THREE.Quaternion().setFromAxisAngle(
+                correctedUp,
+                adjustmentAngle
+            );
+            routeInstance.targetQuaternion.multiplyQuaternions(routeInstance.targetQuaternion, adjustmentQuaternion);
+        }
+        
+        // 动态调整旋转平滑系数 - 在端点附近使用更强的平滑
+        const progress = routeInstance.animationProgress;
+        const endpointThreshold = 0.05; // 端点阈值
+        let rotationSmoothingFactor = 0.2; // 默认旋转平滑系数
+        
+        if (progress <= endpointThreshold || progress >= (1 - endpointThreshold)) {
+            // 在端点附近，使用更强的平滑
+            rotationSmoothingFactor = 0.05;
+        } else if (progress <= endpointThreshold * 2 || progress >= (1 - endpointThreshold * 2)) {
+            // 在端点附近的缓冲区，使用中等平滑
+            rotationSmoothingFactor = 0.1;
+        }
+        
+        // 如果飞机正在暂停或即将改变方向，进一步降低平滑系数
+        if (routeInstance.isPaused || routeInstance.needsDirectionChange) {
+            rotationSmoothingFactor = 0.02; // 更强的平滑以避免突变
+        }
+        
+        // 平滑插值到目标旋转
+        routeInstance.lastQuaternion.slerp(routeInstance.targetQuaternion, rotationSmoothingFactor);
+        
+        // 应用旋转
+        airplane.quaternion.copy(routeInstance.lastQuaternion);
+    }
+
+    /**
+     * 平滑更新飞机相机
+     */
+    updateFlightCameraSmooth(delta) {
+        if (!this.flightRouteInstances) return;
+
+        this.flightRouteInstances.forEach(routeInstance => {
+            const camera = routeInstance.airplane.userData.camera;
+            if (!camera) return;
+
+            // 为相机添加平滑的振动减少
+            const dampingFactor = 0.05;
+            if (camera.userData.lastPosition) {
+                const targetPosition = routeInstance.airplane.position.clone();
+                camera.userData.lastPosition.lerp(targetPosition, dampingFactor);
+            } else {
+                camera.userData.lastPosition = routeInstance.airplane.position.clone();
+            }
+
+            // 应用额外的相机稳定
+            if (camera.userData.stabilizer) {
+                camera.userData.stabilizer += delta * 0.001;
+                // 添加轻微的相机摆动抑制
+                const stabilizationOffset = new THREE.Vector3(
+                    Math.sin(camera.userData.stabilizer * 0.5) * 0.1,
+                    Math.cos(camera.userData.stabilizer * 0.3) * 0.05,
+                    0
+                );
+                camera.position.add(stabilizationOffset);
+            } else {
+                camera.userData.stabilizer = 0;
+            }
         });
     }
 } 

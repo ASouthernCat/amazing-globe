@@ -8,6 +8,7 @@ import { EffectComposer, RenderPass } from 'postprocessing';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
 import { initEffect } from './effect';
 import { arcsData, majorTradeCities } from './globe/data/arcs';
+import { flightRoutes } from './globe/data/flights';
 import gsap from 'gsap';
 
 function initScene() {
@@ -45,10 +46,12 @@ function initScene() {
         else scene.background = new THREE.Color(sceneParameters.bgColor);
     })
 
+    let renderCamera = null;
     const camera = new THREE.PerspectiveCamera(65, sizes.width / sizes.height, 0.1, 1000);
     camera.position.set(0, 0, 6);
+    renderCamera = camera;
 
-    const controls = new OrbitControls(camera, canvas);
+    const controls = new OrbitControls(renderCamera, canvas);
     controls.enableDamping = true;
     controls.enablePan = false;
     controls.maxDistance = 980;
@@ -256,8 +259,15 @@ function initScene() {
                 landPointColor: '#9afaff',
                 landPointDensity: 1.0,
                 landPointOpacity: 0.8,
+                // 飞机航线配置
+                showFlightRoutes: true,
+                flightRoutesData: flightRoutes,
+                flightAnimationSpeed: 0.1,
+                flightPauseTime: 2000,
+                airplaneScale: 0.01,
                 arcsData: arcsData,
-                pointsData: pointsData
+                pointsData: pointsData,
+                airplaneRotationAdjustment: 0
             };
             earth = new Earth(globeConfig, ()=>{
                 earthEnterAnimation(earth)
@@ -510,6 +520,114 @@ function initScene() {
             // 初始统计更新
             setTimeout(updateLandPointStats, 1000);
 
+            // 飞机航线控制
+            const flightFolder = earthFolder.addFolder({title: '飞机航线'})
+            flightFolder.expanded = false
+            
+            // 显示/隐藏飞机航线
+            flightFolder.addBinding(globeConfig, 'showFlightRoutes', {
+                label: '显示航线'
+            }).on('change', ev => {
+                if (earth.flightRoutesGroup) {
+                    earth.flightRoutesGroup.visible = ev.value;
+                }
+            });
+            
+            // 飞行速度控制
+            flightFolder.addBinding(globeConfig, 'flightAnimationSpeed', {
+                min: 0.001,
+                max: 1,
+                step: 0.001,
+                label: '飞行速度'
+            });
+            
+            // 暂停时间控制
+            flightFolder.addBinding(globeConfig, 'flightPauseTime', {
+                min: 1000,
+                max: 5000,
+                step: 100,
+                label: '暂停时间(ms)'
+            });
+            
+            // 飞机大小控制
+            flightFolder.addBinding(globeConfig, 'airplaneScale', {
+                min: 0.05,
+                max: 0.3,
+                step: 0.01,
+                label: '飞机大小'
+            }).on('change', ev => {
+                if (earth.flightRouteInstances) {
+                    earth.flightRouteInstances.forEach(instance => {
+                        if (instance.airplane) {
+                            instance.airplane.scale.setScalar(ev.value);
+                        }
+                    });
+                }
+            });
+
+            // 飞机朝向调整控制
+            flightFolder.addBinding(globeConfig, 'airplaneRotationAdjustment', {
+                min: -Math.PI,
+                max: Math.PI,
+                step: 0.1,
+                label: '朝向调整',
+                format: (v) => `${(v * 180 / Math.PI).toFixed(1)}°`
+            });
+            
+            // 航线统计信息
+            const flightStats = {
+                activeRoutes: flightRoutes.length,
+                totalDistance: '约45,000公里'
+            };
+            
+            flightFolder.addBinding(flightStats, 'activeRoutes', {
+                readonly: true,
+                label: '活跃航线',
+                format: (v) => v.toFixed(0),
+            });
+            
+            flightFolder.addBinding(flightStats, 'totalDistance', {
+                readonly: true,
+                label: '总里程'
+            });
+
+            const flightOpitons = flightRoutes.map(route => {
+                return {
+                    text: route.name,
+                    value: route.id
+                }
+            })
+            flightOpitons.push({
+                text: '默认视角',
+                value: 'default'
+            })
+            flightFolder.addBlade({
+                view: 'list',
+                label: '飞行视角',
+                options: flightOpitons,
+                value: 'default',
+            }).on('change', (ev)=>{
+                if(ev.value === 'default'){
+                    renderCamera = camera;
+                    globeConfig.pointSize = 0.5;
+                    globeConfig.showFlyingParticle = true;
+                }else{
+                    renderCamera = earth.flightRouteInstances.find(instance => instance.route.id === ev.value).airplane.userData.camera;
+                    globeConfig.pointSize = 0.2;
+                    globeConfig.showFlyingParticle = false;
+                }
+                // 重新创建弧线以应用新设置
+                if (earth.arcsGroup) {
+                    earth.remove(earth.arcsGroup)
+                    earth.createArcs()
+                }
+                // 重新创建点以应用新设置
+                if (earth.pointsGroup) {
+                    earth.remove(earth.pointsGroup)
+                    earth.createPoints()
+                }
+            })
+
             // 贸易数据统计
             const tradeFolder = earthFolder.addFolder({title: '贸易数据统计'})
             tradeFolder.expanded = false
@@ -604,7 +722,7 @@ function initScene() {
 
         earth && earth.update(delta);
         
-        renderer.render(scene, camera);
+        renderer.render(scene, renderCamera);
         // composer.render();
 
         tickId = requestAnimationFrame(render);
