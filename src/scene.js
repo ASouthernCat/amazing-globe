@@ -705,7 +705,7 @@ function initScene() {
         earthTimeline.to(earth.rotation, {
             duration: 2.5,
             ease: 'power3.out',
-            y: Math.PI * 10
+            y: Math.PI * 6
         }, 0) // 从动画开始时就开始旋转
     }
 
