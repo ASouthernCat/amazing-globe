@@ -7,6 +7,7 @@ import countries from './data/globe.json';
 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import { sizes } from '../system/sizes';
 
 const gltfLoader = new GLTFLoader()
 const dracoLoader = new DRACOLoader()
@@ -153,7 +154,7 @@ export default class Earth extends THREE.Object3D {
         });
 
         this.airplaneModel = new THREE.Object3D();
-        this.airplaneCamera = new THREE.PerspectiveCamera(75, 1, 0.1, 10000);
+        this.airplaneCamera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 0.1, 10000);
 
         // 数据存储
         this.countriesData = countriesData;
@@ -177,6 +178,8 @@ export default class Earth extends THREE.Object3D {
         };
 
         this.initializeComponents();
+
+        window.addEventListener('resize', this.onWindowResize.bind(this));
     }
 
     /**
@@ -963,6 +966,8 @@ export default class Earth extends THREE.Object3D {
                 }
             }
         });
+
+        window.removeEventListener('resize', this.onWindowResize.bind(this));
     }
 
     // 数据更新方法
@@ -1283,6 +1288,15 @@ export default class Earth extends THREE.Object3D {
         
         this.flightRouteInstances.push(routeInstance);
         this.flightRoutesGroup.add(routeGroup);
+    }
+
+    onWindowResize(){
+        this.flightRouteInstances.forEach(instance => {
+            if(instance.airplane.userData.camera){
+                instance.airplane.userData.camera.aspect = sizes.width / sizes.height;
+                instance.airplane.userData.camera.updateProjectionMatrix();
+            }
+        });
     }
 
     /**

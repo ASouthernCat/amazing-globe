@@ -88,6 +88,7 @@ function initScene() {
     initEffect(composer, camera)
 
     function resetSceneSettings(){
+        renderCamera = camera;
         camera.position.set(0, 0, 6);
         sceneParameters.bgColor = '#000';
         scene.background = new THREE.Color(sceneParameters.bgColor);
